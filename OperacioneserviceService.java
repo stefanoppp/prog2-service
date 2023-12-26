@@ -112,129 +112,114 @@ public class OperacioneserviceService {
         
         String jwt_token="eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJzdGVmYW5vMiIsImF1dGgiOiJST0xFX1VTRVIiLCJleHAiOjE3MzEwNjQyNDh9.Atbq7DfHM9u-AhfNUm0aM02EsD1GSxBhne_9Tuw3dWe-sgbNKoHAL8OMnUqtPjkJCu2QWQJtii2d71eo4PTbvQ";
         try {
-                URL apiUrl = new URL(full_url);
-                HttpURLConnection connection = (HttpURLConnection) apiUrl.openConnection();
+            URL apiUrl = new URL(full_url);
+            HttpURLConnection connection = (HttpURLConnection) apiUrl.openConnection();
+        
+            connection.setRequestProperty("Authorization", "Bearer " + jwt_token);
+            int responseCode = connection.getResponseCode();
+
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                System.out.println("La solicitud no fue exitosa. Respuesta: " + responseCode);
+            }
+            BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            String inputLine;
+            StringBuilder response = new StringBuilder();
+
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
+            }
+            in.close();
+
+            connection.disconnect();
+
+            ObjectMapper objectMapper = new ObjectMapper();
+            String acciones_disponibles=response.toString();
+            JsonNode rootNode = objectMapper.readTree(acciones_disponibles);
+            JsonNode consultaNode = rootNode.get("consulta");
+            int cantidad_real=consultaNode.get("cantidad").asInt();
+
+            // Variables relacionadas con el tiempo
+            Timer timer = new Timer();
+            Calendar calendar = Calendar.getInstance();
+            Date currentTime = new Date();
+            Date scheduledTime = calendar.getTime();
+
+            MutableBoolean proceso = new MutableBoolean(true);
             
-                connection.setRequestProperty("Authorization", "Bearer " + jwt_token);
-                int responseCode = connection.getResponseCode();
-
-                if (responseCode != HttpURLConnection.HTTP_OK) {
-                    System.out.println("La solicitud no fue exitosa. Respuesta: " + responseCode);
+            if(modo=="PRINCIPIODIA"){
+                calendar.set(Calendar.HOUR_OF_DAY, 9);
+                calendar.set(Calendar.MINUTE, 0);
+                calendar.set(Calendar.SECOND, 0);
+        
+                // Si la hora ya pasó hoy, programa la tarea para mañana
+                if (currentTime.after(scheduledTime)) {
+                    calendar.add(Calendar.DAY_OF_MONTH, 1); 
+                    scheduledTime = calendar.getTime();
                 }
-                    BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    String inputLine;
-                    StringBuilder response = new StringBuilder();
-
-                    while ((inputLine = in.readLine()) != null) {
-                        response.append(inputLine);
+                
+                timer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        if(operacion=="VENTA"){
+                            if(cantidad_real<cantidad_solicitada){
+                                System.out.println("No puede vender mas de lo que tiene");
+                                proceso.setValue(false);
+                            }
+                            else{
+                                resta(cantidad_solicitada, cantidad_real);
+                            }
+                        }
+                        if(operacion=="COMPRA"){
+                            suma(cantidad_solicitada, cantidad_real);
+                        }
+                        timer.cancel(); 
                     }
-                    in.close();
-
-                    connection.disconnect();
-
-                    ObjectMapper objectMapper = new ObjectMapper();
-                    String acciones_disponibles=response.toString();
-                    JsonNode rootNode = objectMapper.readTree(acciones_disponibles);
-                    JsonNode consultaNode = rootNode.get("consulta");
-                    int cantidad_real=consultaNode.get("cantidad").asInt();
-
+                }, scheduledTime);}          
+            else if (modo=="AHORA"){
+                if(operacion=="VENTA"){
                     if(cantidad_real<cantidad_solicitada){
-                        return false;
+                        System.out.println("No puede vender mas de lo que tiene");
+                        proceso.setValue(false);
                     }
-                    // ACA caemos en las acciones que si se pueden llevar a cabo. Ya se verifico todo
-                    // Ver que se hace con la orden que no cae en el horario
                     else{
-                        Timer timer = new Timer();
-                        Calendar calendar = Calendar.getInstance();
-                        Date currentTime = new Date();
-                        Date scheduledTime = calendar.getTime();
-                        MutableBoolean proceso = new MutableBoolean(true);
-                        
-
-                        if(modo=="PRINCIPIODIA"){
-
-                            calendar.set(Calendar.HOUR_OF_DAY, 9);
-                            calendar.set(Calendar.MINUTE, 0);
-                            calendar.set(Calendar.SECOND, 0);
-                    
-                            // Si la hora ya pasó hoy, programa la tarea para mañana
-                            if (currentTime.after(scheduledTime)) {
-                                calendar.add(Calendar.DAY_OF_MONTH, 1); 
-                                scheduledTime = calendar.getTime();
-                            }
-                            
-                            timer.schedule(new TimerTask() {
-                                @Override
-                                public void run() {
-                                    if(operacion=="VENTA"){
-                                        if(cantidad_real<cantidad_solicitada){
-                                            System.out.println("No puede vender mas de lo que tiene");
-                                            proceso.setValue(false);
-                                        }
-                                        else{
-                                            resta(cantidad_solicitada, cantidad_real);
-                                        }
-                                    }
-                                    if(operacion=="COMPRA"){
-                                        suma(cantidad_solicitada, cantidad_real);
-                                    }
-                                    timer.cancel(); 
-                                }
-                            }, scheduledTime);
-                           
-                        if (modo=="AHORA"){
-                            if(operacion=="VENTA"){
-                                if(cantidad_real<cantidad_solicitada){
-                                    System.out.println("No puede vender mas de lo que tiene");
-                                    proceso.setValue(false);
-                                }
-                                else{
-                                    resta(cantidad_solicitada, cantidad_real);
-                                }
-                            }
-                            if(operacion=="COMPRA"){
-                                suma(cantidad_solicitada, cantidad_real);
-                            }
-                        }
-                        if (modo=="FINDIA"){
-                            calendar.set(Calendar.HOUR_OF_DAY, 18);
-                            calendar.set(Calendar.MINUTE, 0);
-                            calendar.set(Calendar.SECOND, 0);
-                    
-                            if (currentTime.after(scheduledTime)) {
-                                calendar.add(Calendar.DAY_OF_MONTH, 1); 
-                                scheduledTime = calendar.getTime();
-                            }
-                    
-                            timer.schedule(new TimerTask() {
-                                @Override
-                                public void run() {
-                                    if(operacion=="VENTA"){
-                                        if(cantidad_real<cantidad_solicitada){
-                                            System.out.println("No puede vender mas de lo que tiene");
-                                            proceso.setValue(false);
-                                        }
-                                        else{
-                                            resta(cantidad_solicitada, cantidad_real);
-                                        }
-                                    }
-                                    if(operacion=="COMPRA"){
-                                        suma(cantidad_solicitada, cantidad_real);
-                                    }
-                                    timer.cancel(); 
-                                }
-                            }, scheduledTime);
-                        }
-                        return proceso.getValue();
+                        resta(cantidad_solicitada, cantidad_real);
                     }
-                else{
-                    return false;
                 }
-            } 
+                if(operacion=="COMPRA"){
+                    suma(cantidad_solicitada, cantidad_real);
+                }
+            }
+            else if (modo=="FINDIA"){
+                calendar.set(Calendar.HOUR_OF_DAY, 18);
+                calendar.set(Calendar.MINUTE, 0);
+                calendar.set(Calendar.SECOND, 0);
+                if (currentTime.after(scheduledTime)) {
+                    calendar.add(Calendar.DAY_OF_MONTH, 1); 
+                    scheduledTime = calendar.getTime();
+                }
+                timer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        if(operacion=="VENTA"){
+                            if(cantidad_real<cantidad_solicitada){
+                                System.out.println("No puede vender mas de lo que tiene");
+                                proceso.setValue(false);
+                            }
+                            else{
+                                resta(cantidad_solicitada, cantidad_real);
+                            }
+                        }
+                        if(operacion=="COMPRA"){
+                            suma(cantidad_solicitada, cantidad_real);
+                        }
+                        timer.cancel(); 
+                    }
+                }, scheduledTime);
+            }
             
-        // CIERRE DEL TRY
+            return proceso.getValue();
+            
         }
-        // CATCH DEL TRY
         catch (Exception e) {
             return false;
         }
