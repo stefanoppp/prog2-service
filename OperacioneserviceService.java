@@ -8,6 +8,8 @@ import java.net.URL;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.TimerTask;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,13 +21,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
+import java.util.concurrent.*;
+import java.time.LocalTime;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-
+import java.util.Timer;
+import java.util.Date;
+import java.util.TimerTask;
+import java.util.Calendar;
 @Service
 @Transactional
 public class OperacioneserviceService {
@@ -71,7 +81,30 @@ public class OperacioneserviceService {
         return cliente > 0 && accion>1;
     }
     // obtenemos total 
-    public boolean discount_actions(int cliente_id, int accion_id, int cantidad_solicitada){
+    public static int resta(int cantidad_solicitada, int cantidad_real){
+        int resta=cantidad_solicitada-cantidad_real;
+        return resta;
+    }
+    public static int suma(int cantidad_solicitada, int cantidad_real){
+        int suma=cantidad_solicitada+cantidad_real;
+        return suma;
+    }
+    public class MutableBoolean {
+        private boolean value;
+    
+        public MutableBoolean(boolean value) {
+            this.value = value;
+        }
+    
+        public boolean getValue() {
+            return value;
+        }
+    
+        public void setValue(boolean value) {
+            this.value = value;
+        }
+    }
+    public boolean process(int cliente_id, int accion_id, int cantidad_solicitada, String modo, String operacion){
         String base_url = "http://192.168.194.254:8000/api/reporte-operaciones/consulta_cliente_accion?";
         String clienteIdParam = "clienteId=" + cliente_id;
         String accionIdParam = "accionId=" + accion_id;
@@ -98,32 +131,115 @@ public class OperacioneserviceService {
                     in.close();
 
                     connection.disconnect();
-                    
-                    // Pasamos a json la rta de accion / cliente ID
+
                     ObjectMapper objectMapper = new ObjectMapper();
                     String acciones_disponibles=response.toString();
                     JsonNode rootNode = objectMapper.readTree(acciones_disponibles);
                     JsonNode consultaNode = rootNode.get("consulta");
-                    // Obtenemos los datos del json para comparar si puede o no, tener la cant de acciones q quiere
                     int cantidad_real=consultaNode.get("cantidad").asInt();
+
                     if(cantidad_real<cantidad_solicitada){
                         return false;
                     }
+                    // ACA caemos en las acciones que si se pueden llevar a cabo. Ya se verifico todo
+                    // Ver que se hace con la orden que no cae en el horario
                     else{
-                        return true;
-                    }
+                        Timer timer = new Timer();
+                        Calendar calendar = Calendar.getInstance();
+                        Date currentTime = new Date();
+                        Date scheduledTime = calendar.getTime();
+                        MutableBoolean proceso = new MutableBoolean(true);
+                        
 
-        } catch (Exception e) {
+                        if(modo=="PRINCIPIODIA"){
+
+                            calendar.set(Calendar.HOUR_OF_DAY, 9);
+                            calendar.set(Calendar.MINUTE, 0);
+                            calendar.set(Calendar.SECOND, 0);
+                    
+                            // Si la hora ya pasó hoy, programa la tarea para mañana
+                            if (currentTime.after(scheduledTime)) {
+                                calendar.add(Calendar.DAY_OF_MONTH, 1); 
+                                scheduledTime = calendar.getTime();
+                            }
+                            
+                            timer.schedule(new TimerTask() {
+                                @Override
+                                public void run() {
+                                    if(operacion=="VENTA"){
+                                        if(cantidad_real<cantidad_solicitada){
+                                            System.out.println("No puede vender mas de lo que tiene");
+                                            proceso.setValue(false);
+                                        }
+                                        else{
+                                            resta(cantidad_solicitada, cantidad_real);
+                                        }
+                                    }
+                                    if(operacion=="COMPRA"){
+                                        suma(cantidad_solicitada, cantidad_real);
+                                    }
+                                    timer.cancel(); 
+                                }
+                            }, scheduledTime);
+                           
+                        if (modo=="AHORA"){
+                            if(operacion=="VENTA"){
+                                if(cantidad_real<cantidad_solicitada){
+                                    System.out.println("No puede vender mas de lo que tiene");
+                                    proceso.setValue(false);
+                                }
+                                else{
+                                    resta(cantidad_solicitada, cantidad_real);
+                                }
+                            }
+                            if(operacion=="COMPRA"){
+                                suma(cantidad_solicitada, cantidad_real);
+                            }
+                        }
+                        if (modo=="FINDIA"){
+                            calendar.set(Calendar.HOUR_OF_DAY, 18);
+                            calendar.set(Calendar.MINUTE, 0);
+                            calendar.set(Calendar.SECOND, 0);
+                    
+                            if (currentTime.after(scheduledTime)) {
+                                calendar.add(Calendar.DAY_OF_MONTH, 1); 
+                                scheduledTime = calendar.getTime();
+                            }
+                    
+                            timer.schedule(new TimerTask() {
+                                @Override
+                                public void run() {
+                                    if(operacion=="VENTA"){
+                                        if(cantidad_real<cantidad_solicitada){
+                                            System.out.println("No puede vender mas de lo que tiene");
+                                            proceso.setValue(false);
+                                        }
+                                        else{
+                                            resta(cantidad_solicitada, cantidad_real);
+                                        }
+                                    }
+                                    if(operacion=="COMPRA"){
+                                        suma(cantidad_solicitada, cantidad_real);
+                                    }
+                                    timer.cancel(); 
+                                }
+                            }, scheduledTime);
+                        }
+                        return proceso.getValue();
+                    }
+                else{
+                    return false;
+                }
+            } 
+            
+        // CIERRE DEL TRY
+        }
+        // CATCH DEL TRY
+        catch (Exception e) {
             return false;
         }
+    // CIERRE METODO
     }
-
-    // encolamos ordenes
-    public String encolar(String modo, int cantidad){
-        return "a";
-    }
-
-
 
     public static void main(String[] args){
         String orders = get_orders();
@@ -144,9 +260,8 @@ public class OperacioneserviceService {
                 int accionId = ordenNode.get("accionId").asInt();
                 int cantidad=ordenNode.get("cantidad").asInt();
                 String modo=ordenNode.get("modo").asText();
-                
-                
-                
+                String tipoOperacion=ordenNode.get("operacion").asText();
+
                 // convertimos fecha ed operacion a localtime
                 LocalTime horaOrden = LocalTime.parse(fechaOperacion.substring(11, 19));
 
@@ -155,13 +270,12 @@ public class OperacioneserviceService {
                 boolean esValidoTiempo = servicio.validate_time(horaOrden);
                 boolean esValidoClienteAccion = servicio.validate_client_action(clienteId, accionId);
                 
-                // comprobamos ambas condiciones
+                // comprobamos las 3 condiciones
                 if (esValidoTiempo && esValidoClienteAccion) {
                     cumplenCondiciones.append(ordenNode.toString()).append("\n");
-                    // verificamos si posee la cantidad solicitada
-                    if(servicio.discount_actions(clienteId,accionId,cantidad)){
-                        // encolamos el proceso
-                        servicio.encolar(modo,cantidad);
+                    // verificamos si posee la cantidad solicitada para la venta
+                    if(servicio.process(clienteId,accionId,cantidad,modo,tipoOperacion)){
+                        System.out.println("Orden encolada exitosamente");
                     }
                     else{
                         System.out.println("No posee suficientes acciones");
@@ -181,7 +295,7 @@ public class OperacioneserviceService {
                 }
             }
             System.out.println(noCumplenCondiciones);
-            
+ 
         } catch (IOException e) {
             e.printStackTrace();
         }
