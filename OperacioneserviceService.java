@@ -71,15 +71,7 @@ public class OperacioneserviceService {
     public boolean validate_client_action(int cliente, int accion) {
         return cliente > 0 && accion>1;
     }
-    // obtenemos total 
-    public static int resta(int cantidad_solicitada, int cantidad_real){
-        int resta=cantidad_solicitada-cantidad_real;
-        return resta;
-    }
-    public static int suma(int cantidad_solicitada, int cantidad_real){
-        int suma=cantidad_solicitada+cantidad_real;
-        return suma;
-    }
+
     public class MutableBoolean {
         private boolean value;
     
