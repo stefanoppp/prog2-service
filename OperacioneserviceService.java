@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -25,51 +26,66 @@ import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.*;
 import java.time.LocalTime;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Timer;
 import java.util.Date;
 import java.util.TimerTask;
 import java.util.Calendar;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.time.LocalTime;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.time.LocalTime;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 @Service
 @Transactional
 public class OperacioneserviceService {
 
     private final Logger log = LoggerFactory.getLogger(OperacioneserviceService.class);
 
-    public static String get_orders() {
-        String url = "http://192.168.194.254:8000/api/ordenes/ordenes/";
-        String jwt_token="eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJzdGVmYW5vMiIsImF1dGgiOiJST0xFX1VTRVIiLCJleHAiOjE3MzEwNjQyNDh9.Atbq7DfHM9u-AhfNUm0aM02EsD1GSxBhne_9Tuw3dWe-sgbNKoHAL8OMnUqtPjkJCu2QWQJtii2d71eo4PTbvQ";
+    public static String get(String url, String jwt_token){
         try {
-                URL apiUrl = new URL(url);
-                HttpURLConnection connection = (HttpURLConnection) apiUrl.openConnection();
-                // establecer el encabezado de autorización con el token JWT
-                connection.setRequestProperty("Authorization", "Bearer " + jwt_token);
-                int responseCode = connection.getResponseCode();
+            URL apiUrl = new URL(url);
+            HttpURLConnection connection = (HttpURLConnection) apiUrl.openConnection();
+            // establecer el encabezado de autorización con el token JWT
+            connection.setRequestProperty("Authorization", "Bearer " + jwt_token);
+            int responseCode = connection.getResponseCode();
 
-                if (responseCode != HttpURLConnection.HTTP_OK) {
-                    System.out.println("La solicitud no fue exitosa. Respuesta: " + responseCode);
-                }
-                    BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    String inputLine;
-                    StringBuilder response = new StringBuilder();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                System.out.println("La solicitud no fue exitosa. Respuesta: " + responseCode);
+            }
+            BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            String inputLine;
+            StringBuilder response = new StringBuilder();
 
-                    while ((inputLine = in.readLine()) != null) {
-                        response.append(inputLine);
-                    }
-                    in.close();
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
+            }
+            in.close();
 
-                    connection.disconnect();
-                    return response.toString();
+            connection.disconnect();
+            return response.toString();
 
         } catch (IOException e) {
             return "Error";
         }
+    }
+    public static String get_orders() {
+        String url = "http://192.168.194.254:8000/api/ordenes/ordenes/";
+        String jwt_token="eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJzdGVmYW5vMiIsImF1dGgiOiJST0xFX1VTRVIiLCJleHAiOjE3MzEwNjQyNDh9.Atbq7DfHM9u-AhfNUm0aM02EsD1GSxBhne_9Tuw3dWe-sgbNKoHAL8OMnUqtPjkJCu2QWQJtii2d71eo4PTbvQ";
+        return get(url, jwt_token);
     }
 
     // validamos hora
@@ -104,131 +120,121 @@ public class OperacioneserviceService {
             this.value = value;
         }
     }
-    public boolean process(int cliente_id, int accion_id, int cantidad_solicitada, String modo, String operacion){
+    public static long calcularDelay(LocalTime horaActual, LocalTime horaEjecucion) {
+        long delay;
+        if (horaActual.isAfter(horaEjecucion)) {
+            long segundosHastaMediaNoche = LocalTime.MAX.toSecondOfDay() - horaActual.toSecondOfDay();
+            long segundosDesdeInicioDelDia = horaEjecucion.toSecondOfDay();
+            delay = segundosHastaMediaNoche + segundosDesdeInicioDelDia;
+        } 
+        else {
+            delay = horaEjecucion.toSecondOfDay() - horaActual.toSecondOfDay();
+        }
+        return delay;
+    }
+    public static void process(Queue<JSONObject> principioQueue, Queue<JSONObject> ahoraQueue, Queue<JSONObject> finQueue){
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+        LocalTime horaActual = LocalTime.now();
+
+        long delayHasta9 = calcularDelay(horaActual, LocalTime.of(9, 0));
+        long delayHasta18 = calcularDelay(horaActual, LocalTime.of(22, 32));
+
+        // Procesamos cola inmediata
+        System.out.println("COLA INMEDIATA");
+        operaciones(ahoraQueue);
+        scheduler.schedule(() -> {
+            System.out.println("COLA 9 AM");
+            operaciones(principioQueue);
+        }, delayHasta9, TimeUnit.SECONDS);
+
+        scheduler.schedule(() -> {
+            System.out.println("COLA 6 PM");
+            operaciones(finQueue);
+        }, delayHasta18, TimeUnit.SECONDS);
+
+    }
+    public static Queue<JSONObject> operaciones(Queue<JSONObject> cola){
         String base_url = "http://192.168.194.254:8000/api/reporte-operaciones/consulta_cliente_accion?";
-        String clienteIdParam = "clienteId=" + cliente_id;
-        String accionIdParam = "accionId=" + accion_id;
-        String full_url = base_url + clienteIdParam + "&" + accionIdParam;
-        
         String jwt_token="eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJzdGVmYW5vMiIsImF1dGgiOiJST0xFX1VTRVIiLCJleHAiOjE3MzEwNjQyNDh9.Atbq7DfHM9u-AhfNUm0aM02EsD1GSxBhne_9Tuw3dWe-sgbNKoHAL8OMnUqtPjkJCu2QWQJtii2d71eo4PTbvQ";
-        try {
-            URL apiUrl = new URL(full_url);
-            HttpURLConnection connection = (HttpURLConnection) apiUrl.openConnection();
-        
-            connection.setRequestProperty("Authorization", "Bearer " + jwt_token);
-            int responseCode = connection.getResponseCode();
+        Queue<JSONObject> colaModificada=new LinkedList<>();
+        Timer timer = new Timer();
+        timer.schedule(new TimerTask() {
+        @Override
+        public void run() {
 
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                System.out.println("La solicitud no fue exitosa. Respuesta: " + responseCode);
-            }
-            BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-            String inputLine;
-            StringBuilder response = new StringBuilder();
-
-            while ((inputLine = in.readLine()) != null) {
-                response.append(inputLine);
-            }
-            in.close();
-
-            connection.disconnect();
-
-            ObjectMapper objectMapper = new ObjectMapper();
-            String acciones_disponibles=response.toString();
-            JsonNode rootNode = objectMapper.readTree(acciones_disponibles);
-            JsonNode consultaNode = rootNode.get("consulta");
-            int cantidad_real=consultaNode.get("cantidad").asInt();
-
-            // Variables relacionadas con el tiempo
-            Timer timer = new Timer();
-            Calendar calendar = Calendar.getInstance();
-            Date currentTime = new Date();
-            Date scheduledTime = calendar.getTime();
-
-            MutableBoolean proceso = new MutableBoolean(true);
+            while (!cola.isEmpty()) {
+                // Orden que estamos procesando
+                JSONObject elemento = cola.poll();
+                // Empieza el codigo
+                try {
+                    String tipoOperacion = elemento.getString("operacion");
+                    int cliente_id = elemento.getInt("cliente");
+                    int accion_id = elemento.getInt("accionId");
+                    int cantidad_solicitada = elemento.getInt("cantidad");
             
-            if(modo=="PRINCIPIODIA"){
-                calendar.set(Calendar.HOUR_OF_DAY, 9);
-                calendar.set(Calendar.MINUTE, 0);
-                calendar.set(Calendar.SECOND, 0);
-        
-                // Si la hora ya pasó hoy, programa la tarea para mañana
-                if (currentTime.after(scheduledTime)) {
-                    calendar.add(Calendar.DAY_OF_MONTH, 1); 
-                    scheduledTime = calendar.getTime();
-                }
-                
-                timer.schedule(new TimerTask() {
-                    @Override
-                    public void run() {
-                        if(operacion=="VENTA"){
-                            if(cantidad_real<cantidad_solicitada){
-                                System.out.println("No puede vender mas de lo que tiene");
-                                proceso.setValue(false);
-                            }
-                            else{
-                                resta(cantidad_solicitada, cantidad_real);
-                            }
+                    String clienteIdParam = "clienteId=" + cliente_id;
+                    String accionIdParam = "accionId=" + accion_id;
+                    String full_url = base_url + clienteIdParam + "&" + accionIdParam;
+
+                    JSONObject accionesCliente = new JSONObject(get(full_url, jwt_token));
+            
+                    Object cantidadActual = accionesCliente.get("cantidadActual");
+
+                    if ("COMPRA".equals(tipoOperacion)) {
+                        System.out.println("Orden de COMPRA");
+                        if (cantidadActual == JSONObject.NULL) {
+                            System.out.println("No posee acciones");
+                        } 
+                        else{
+                            System.out.println("Usted solicito " +cantidadActual+ " acciones");
+                            System.out.println("Se agregan " +cantidad_solicitada+ " acciones");
                         }
-                        if(operacion=="COMPRA"){
-                            suma(cantidad_solicitada, cantidad_real);
+                        cantidadActual=+cantidad_solicitada;
+                        accionesCliente.put("cantidadActual", cantidadActual);
+                        System.out.println("Ahora posee " + cantidadActual);
+                        elemento.put("operacionExitosa", true);
+                        elemento.put("operacionesObservaciones", "ok");
+                    }
+                    
+                    if ("VENTA".equals(tipoOperacion)) {
+                        System.out.println("Orden de VENTA");
+
+                        if (cantidadActual == JSONObject.NULL ) {
+                            System.out.println("No posee suficientes acciones");
+                            elemento.put("operacionExitosa", false);
+                            elemento.put("operacionesObservaciones", "No posee suficientes acciones");
+                        } 
+                        else {
+                            System.out.println("Posee " + cantidadActual + " acciones");
+                            System.out.println("Se restan " + cantidad_solicitada + " acciones");
+                            cantidadActual=-cantidad_solicitada;
+                            System.out.println("Posee " + cantidadActual + " acciones");
+                            elemento.put("operacionExitosa", true);
+                            elemento.put("operacionesObservaciones", "ok");
                         }
-                        timer.cancel(); 
                     }
-                }, scheduledTime);}          
-            else if (modo=="AHORA"){
-                if(operacion=="VENTA"){
-                    if(cantidad_real<cantidad_solicitada){
-                        System.out.println("No puede vender mas de lo que tiene");
-                        proceso.setValue(false);
-                    }
-                    else{
-                        resta(cantidad_solicitada, cantidad_real);
-                    }
-                }
-                if(operacion=="COMPRA"){
-                    suma(cantidad_solicitada, cantidad_real);
+                    colaModificada.offer(elemento);
+                    System.out.println(elemento.toString()+ "\n");
+
+                } 
+                catch(Exception e){
+                    System.out.println(e);
                 }
             }
-            else if (modo=="FINDIA"){
-                calendar.set(Calendar.HOUR_OF_DAY, 18);
-                calendar.set(Calendar.MINUTE, 0);
-                calendar.set(Calendar.SECOND, 0);
-                if (currentTime.after(scheduledTime)) {
-                    calendar.add(Calendar.DAY_OF_MONTH, 1); 
-                    scheduledTime = calendar.getTime();
-                }
-                timer.schedule(new TimerTask() {
-                    @Override
-                    public void run() {
-                        if(operacion=="VENTA"){
-                            if(cantidad_real<cantidad_solicitada){
-                                System.out.println("No puede vender mas de lo que tiene");
-                                proceso.setValue(false);
-                            }
-                            else{
-                                resta(cantidad_solicitada, cantidad_real);
-                            }
-                        }
-                        if(operacion=="COMPRA"){
-                            suma(cantidad_solicitada, cantidad_real);
-                        }
-                        timer.cancel(); 
-                    }
-                }, scheduledTime);
+            timer.cancel();
             }
-            
-            return proceso.getValue();
-            
-        }
-        catch (Exception e) {
-            return false;
-        }
-    // CIERRE METODO
+        }, 100);
+        return colaModificada;
     }
 
     public static void main(String[] args){
         String orders = get_orders();
         ObjectMapper objectMapper = new ObjectMapper();
+
+        // Colas
+        Queue<JSONObject> principioQueue = new LinkedList<>();
+        Queue<JSONObject> ahoraQueue = new LinkedList<>();
+        Queue<JSONObject> finQueue = new LinkedList<>();
 
         try {
             // deserializar el JSON a un objeto Java
@@ -258,14 +264,33 @@ public class OperacioneserviceService {
                 // comprobamos las 3 condiciones
                 if (esValidoTiempo && esValidoClienteAccion) {
                     cumplenCondiciones.append(ordenNode.toString()).append("\n");
-                    // verificamos si posee la cantidad solicitada para la venta
-                    if(servicio.process(clienteId,accionId,cantidad,modo,tipoOperacion)){
-                        System.out.println("Orden encolada exitosamente");
+                    if("PRINCIPIODIA".equals(modo)){
+                        try{
+                            JSONObject ordenPrincipio = new JSONObject(ordenNode.toString());
+                            principioQueue.offer(ordenPrincipio);
+                        }
+                        catch(Exception e){
+                            e.printStackTrace();
+                        }
                     }
-                    else{
-                        System.out.println("No posee suficientes acciones");
+                    if("AHORA".equals(modo)){
+                        try{
+                            JSONObject ordenAhora = new JSONObject(ordenNode.toString());
+                            ahoraQueue.offer(ordenAhora);
+                        }
+                        catch(Exception e){
+                            e.printStackTrace();
+                        }
                     }
-                    
+                    if("FINDIA".equals(modo)){
+                        try{
+                            JSONObject ordenFin = new JSONObject(ordenNode.toString());
+                            finQueue.offer(ordenFin);
+                        }
+                        catch(Exception e){
+                            e.printStackTrace();
+                        }
+                    }
                 } 
                 else {
                     StringBuilder razonesNoCumple = new StringBuilder();
@@ -279,8 +304,9 @@ public class OperacioneserviceService {
                             .append("Razones: ").append(razonesNoCumple).append("\n");
                 }
             }
-            System.out.println(noCumplenCondiciones);
- 
+            System.out.println("Ordenes encoladas exitosamente");
+            process(principioQueue, ahoraQueue, finQueue);
+
         } catch (IOException e) {
             e.printStackTrace();
         }
